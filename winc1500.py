@@ -15,7 +15,7 @@ It can be used to enable Arduino/Genuino MKR1000 wifi capabilities or with any o
 
 Zerynth driver current implementation supports only communication with the chip through standard SPI interface.
 
-.. note:: Zerynth driver is based on Microchip driver version 19.5.2 provided with Atmel Software Framework version 3.34.1 requiring the internal Firmware to be upgraded at least to version 19.5.2. For the upgrading procedure follow this guide: `Firmware Updater <https://www.arduino.cc/en/Tutorial/FirmwareUpdater>`_.
+.. note:: Zerynth driver is based on Microchip driver version 19.5.4 provided with Advanced Software Framework version 3.37.0 requiring the internal Firmware to be upgraded at least to version 19.5.4. For the upgrading procedure follow this guide: `Firmware Updater <https://www.arduino.cc/en/Tutorial/FirmwareUpdater>`_.
 
 
 The WINC1500 chip supports secure connections through tls v1.2.

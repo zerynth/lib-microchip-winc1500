@@ -16,5 +16,5 @@
     "repo": "official",
     "title": "WINC1500",
     "version": "r2.1.0",
-    "whatsnew": "Fixed windows compilation bug"
+    "whatsnew": "Update to ASF 3.37 and Winc Firmware 19.5.4"
 }
