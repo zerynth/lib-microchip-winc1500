@@ -81,6 +81,11 @@ def auto_init():
 
 
 @native_c("__chip_init", [
+    #-if ZERYNTH_SSL
+    "#csrc/misc/zstdlib.c",
+    "#csrc/tls/mbedtls/library/*",
+    #-endif
+    "#csrc/zsockets/*",
     "csrc/src/nm_bsp.c",
     "csrc/src/nm_bus_wrapper.c",
     "csrc/src/nm_common.c",
@@ -102,7 +107,11 @@ def auto_init():
     "csrc/winc.c"
 ], ["VHAL_SPI","__SAMD21G18AU__"],
 [
-    "-I.../csrc"
+    "-I.../csrc",
+    #-if ZERYNTH_SSL
+    "-I#csrc/tls/mbedtls/include",
+    #-endif
+    "-I#csrc/zsockets"
 ])
 def __chip_init(spidrv,cs,int_pin,rst,enable,wake,clock,drvinfo):
     pass

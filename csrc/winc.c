@@ -6,6 +6,12 @@
 #include "inc/socket.h"
 #include "inc/conf_winc.h"
 
+#include "zerynth_sockets.h"
+
+#if defined(ZERYNTH_SSL)
+#include "zerynth_ssl.h"
+#include "mbedtls/ssl.h"
+#endif
 
 // #define printf(...) vbl_printf_stdout(__VA_ARGS__)
 #define printf(...)
@@ -610,7 +616,15 @@ static void socket_cb(SOCKET sock, uint8_t u8Msg, void *pvMsg)
         if (slot != CB_DATA_LEN) {
             SockData *sd = get_sock_data(cb_data[slot].info[3]);
             printf("SD RECV %x %i",sd,cb_data[slot].info[3]);
-            if(sd) sd->size = pstrRecv->s16BufferSize;
+            if (sd) {
+                if (pstrRecv->s16BufferSize > 0) {
+                    sd->size = pstrRecv->s16BufferSize;
+                }
+                else {
+                    // timeout or error occurred
+                    sd->size = 0;
+                }
+            }
             cb_data_set_res(slot, pstrRecv->s16BufferSize);
         }
     }
@@ -736,7 +750,63 @@ static void socket_cb(SOCKET sock, uint8_t u8Msg, void *pvMsg)
 C_NATIVE(winc_socket_socket) {
     NATIVE_UNWARN();
 
-    socketInit();
+    uint32_t family = PSMALLINT_VALUE(args[0]);
+    uint32_t type = PSMALLINT_VALUE(args[1]);
+
+    if (family != 0 || type > 3) {
+        return ERR_UNSUPPORTED_EXC;
+    }
+
+    RELEASE_GIL();
+    int32_t sock_id = gzsock_socket(
+          AF_INET,
+          type + 1,
+          IPPROTO_TCP,
+          NULL);
+    ACQUIRE_GIL();
+
+    if (sock_id < 0) {
+        return ERR_IOERROR_EXC;
+    }
+
+    *res = PSMALLINT_NEW(sock_id);
+
+    return ERR_OK;
+}
+
+#define DRV_SOCK_DGRAM 1
+#define DRV_SOCK_STREAM 0
+#define DRV_AF_INET 0
+
+C_NATIVE(winc_secure_socket) {
+    C_NATIVE_UNWARN();
+
+#if defined(ZERYNTH_SSL)
+    int32_t err = ERR_OK;
+    int32_t sock;
+    int32_t i;
+    SSLInfo nfo;
+
+    int32_t ssocknum = 0;
+    int32_t ctxlen;
+    uint8_t* certbuf = NULL;
+    uint16_t certlen = 0;
+    uint8_t* clibuf = NULL;
+    uint16_t clilen = 0;
+    uint8_t* pkeybuf = NULL;
+    uint16_t pkeylen = 0;
+    uint32_t options = _CLIENT_AUTH | _CERT_NONE;
+    uint8_t* hostbuf = NULL;
+    uint16_t hostlen = 0;
+
+    PTuple* ctx;
+    memset(&nfo,0,sizeof(nfo));
+    ctx = (PTuple*)args[nargs - 1];
+    nargs--;
+    // if (parse_py_args("III", nargs, args, DRV_AF_INET, &family, DRV_SOCK_STREAM, &type, IPPROTO_TCP, &proto) != 3){
+    //     printf("G\n");
+    //     return ERR_TYPE_EXC;
+    // }
 
     uint32_t family = PSMALLINT_VALUE(args[0]);
     uint32_t type = PSMALLINT_VALUE(args[1]);
@@ -745,27 +815,52 @@ C_NATIVE(winc_socket_socket) {
         return ERR_UNSUPPORTED_EXC;
     }
 
-    LOCK_DRIVER();
-    int sock_id = socket(AF_INET, type + 1, 0);
-    UNLOCK_DRIVER();
+    // if (type != DRV_SOCK_DGRAM && type != DRV_SOCK_STREAM){
+    //     printf("GG\n");
+    //     return ERR_TYPE_EXC;
+    // }
+    // if (family != DRV_AF_INET)
+    //     return ERR_UNSUPPORTED_EXC;
 
-    if (sock_id < 0) {
-        return ERR_IOERROR_EXC;
+    ctxlen = PSEQUENCE_ELEMENTS(ctx);
+    if (ctxlen && ctxlen != 5)
+        return ERR_TYPE_EXC;
+
+    if (ctxlen) {
+        //ssl context passed
+        PObject* cacert = PTUPLE_ITEM(ctx, 0);
+        PObject* clicert = PTUPLE_ITEM(ctx, 1);
+        PObject* ppkey = PTUPLE_ITEM(ctx, 2);
+        PObject* host = PTUPLE_ITEM(ctx, 3);
+        PObject* iopts = PTUPLE_ITEM(ctx, 4);
+
+        nfo.cacert = PSEQUENCE_BYTES(cacert);
+        nfo.cacert_len = PSEQUENCE_ELEMENTS(cacert);
+        nfo.clicert = PSEQUENCE_BYTES(clicert);
+        nfo.clicert_len = PSEQUENCE_ELEMENTS(clicert);
+        nfo.hostname = PSEQUENCE_BYTES(host);
+        nfo.hostname_len = PSEQUENCE_ELEMENTS(host);
+        nfo.pvkey = PSEQUENCE_BYTES(ppkey);
+        nfo.pvkey_len = PSEQUENCE_ELEMENTS(ppkey);
+        nfo.options = PSMALLINT_VALUE(iopts);
     }
 
-    SockData *sd = take_sock_data(sock_id);
-    if(!sd) {
-        return ERR_VALUE_EXC;
-    }
+    RELEASE_GIL();
+    printf("%x\n",gzsock_socket);
+    sock = gzsock_socket(
+          AF_INET,
+          type + 1, // zerynth sockets type differ from winc sockets type by one
+          IPPROTO_TCP,
+          (ctxlen) ? &nfo:NULL);
+  ACQUIRE_GIL();
+  printf("CMD_SOCKET: %i %i\n", sock, errno);
+  if (sock < 0)
+    return ERR_IOERROR_EXC;
+  *res = PSMALLINT_NEW(sock);
+  return ERR_OK;
 
-    sock_timeout[(uint32_t) sock_id] = 0;
+#else 
 
-    *res = PSMALLINT_NEW(sock_id);
-
-    return ERR_OK;
-}
-
-C_NATIVE(winc_secure_socket) {
     NATIVE_UNWARN();
 
     socketInit();
@@ -791,6 +886,8 @@ C_NATIVE(winc_secure_socket) {
     *res = PSMALLINT_NEW(sock_id);
 
     return ERR_OK;
+
+#endif
 }
 
 C_NATIVE(winc_socket_connect) {
@@ -804,32 +901,18 @@ C_NATIVE(winc_socket_connect) {
     struct sockaddr_in addr;
     int ret;
 
-    socketInit();
-
-
-    uint8_t slot = cb_data_get_slot();
-    if (slot == CB_DATA_LEN) {
-        // no more slots available
-        return ERR_VALUE_EXC;
-    }
-
     addr.sin_family = AF_INET;
 	addr.sin_port = netaddr.port;
     addr.sin_addr.s_addr = netaddr.ip;
 
     printf("CONNECT TO %x %x\n",addr.sin_port,addr.sin_addr.s_addr);
-
-    cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_CONNECT, sock_id, 0);
+    printf("WITH %i\n",sock_id);
 
     RELEASE_GIL();
-    LOCK_DRIVER();
-    connect(sock_id, (struct sockaddr *)&addr, sizeof(struct sockaddr_in));
-    UNLOCK_DRIVER();
-
-    ret = cb_data_get_res(slot);
+    ret = gzsock_connect(sock_id, &addr, sizeof(addr));
     ACQUIRE_GIL();
 
-    if (!ret) {
+    if (ret < 0) {
         return ERR_CONNECTION_REF_EXC;
     }
 
@@ -842,35 +925,16 @@ C_NATIVE(winc_socket_send) {
     socketInit();
 
     uint32_t sock_id = PSMALLINT_VALUE(args[0]);
-
-    // workaround for undetected connection closed by peer (not completely working)
-    cb_data_force_free(CB_TYPE_SOCK, SOCKET_MSG_SEND, sock_id);
-
-    uint8_t slot = cb_data_get_slot();
-    if (slot == CB_DATA_LEN) {
-        // no more slots available
-        return ERR_VALUE_EXC;
-    }
+    int ret;
 
     uint8_t *to_send = PSEQUENCE_BYTES(args[1]);
     uint16_t len = PSEQUENCE_ELEMENTS(args[1]);
 
-    cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_SEND, sock_id, 0);
-
     RELEASE_GIL();
-
-    LOCK_DRIVER();
-    send(sock_id, to_send, len, 0);
-    UNLOCK_DRIVER();
-
-    sint16 ret = cb_data_get_res(slot);
+    ret = gzsock_send(sock_id, to_send, len, 0);
     ACQUIRE_GIL();
 
-    // if (ret == -123) {
-    //     return ERR_OK;
-    // }
-
-    if (ret == SOCK_ERR_CONN_ABORTED || ret == -123) {
+    if (ret == SOCK_ERR_CONN_ABORTED || ret == SOCK_ERR_INVALID || ret == -123) {
         return ERR_CONNECTION_ABR_EXC;
     }
 
@@ -885,34 +949,18 @@ C_NATIVE(winc_socket_sendall) {
     socketInit();
 
     uint32_t sock_id = PSMALLINT_VALUE(args[0]);
-
-    // workaround for undetected connection closed by peer (not completely working)
-    cb_data_force_free(CB_TYPE_SOCK, SOCKET_MSG_SEND, sock_id);
-
-    uint8_t slot = cb_data_get_slot();
-    if (slot == CB_DATA_LEN) {
-        // no more slots available
-        return ERR_VALUE_EXC;
-    }
+    int ret;
 
     uint8_t *to_send = PSEQUENCE_BYTES(args[1]);
-    uint16 len = (uint16) PSEQUENCE_ELEMENTS(args[1]);
-
-    cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_SEND, sock_id, 0);
+    uint16_t len = PSEQUENCE_ELEMENTS(args[1]);
 
     RELEASE_GIL();
-
-    LOCK_DRIVER();
-    send(sock_id, to_send, len, 0);
-    UNLOCK_DRIVER();
-
-    sint16 ret = cb_data_get_res(slot);
+    ret = gzsock_send(sock_id, to_send, len, 0);
     ACQUIRE_GIL();
 
-    if (ret == -123) {
+    if (ret == SOCK_ERR_CONN_ABORTED || ret == SOCK_ERR_INVALID || ret == -123) {
         return ERR_CONNECTION_ABR_EXC;
     }
-
     if (ret != len) {
         return ERR_IOERROR_EXC;
     }
@@ -922,8 +970,6 @@ C_NATIVE(winc_socket_sendall) {
 
 C_NATIVE(winc_socket_recv_into) {
     NATIVE_UNWARN();
-
-    socketInit();
 
     uint8_t *buf;
     int32_t len;
@@ -940,12 +986,6 @@ C_NATIVE(winc_socket_recv_into) {
                     &ofs
                    ) != 5) return ERR_TYPE_EXC;
 
-    SockData *sd = get_sock_data(sock_id);
-    if (!sd) {
-        // no more sockets available
-        return ERR_VALUE_EXC;
-    }
-
     buf += ofs;
     len -= ofs;
     len = (sz < len) ? sz : len;
@@ -955,52 +995,22 @@ C_NATIVE(winc_socket_recv_into) {
 
     sint16 ret=0;
     RELEASE_GIL();
-
-    do {
-        printf("SD SIZE %i vs %i\n",sd->size,len);
-        if (sd->size){
-            //get data from socket
-            if (sd->size>=len) {
-                memcpy(buf,sd->head,len);
-                sd->size-=len;
-                sd->head+=len;
-                len=0;
-            } else {
-                memcpy(buf,sd->head,sd->size);
-                buf+=sd->size;
-                len-=sd->size;
-                sd->size=0;
-            }
-        } else {
-            uint8_t slot = cb_data_get_slot();
-            if (slot == CB_DATA_LEN) {
-                // no more slots available
-                ret = -1234;
-                break;
-            }
-            cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_RECV, sock_id, 0);
-            cb_data[slot].info[3] = sock_id;
-            //do read
-            LOCK_DRIVER();
-            sd->head = sd->buffer;
-            recv(sock_id,sd->buffer,MAX_SOCK_BUF,sock_timeout[sock_id]);
-            //recv(sock_id, buf, len, sock_timeout[sock_id]);
-            UNLOCK_DRIVER();
-            ret = cb_data_get_res(slot);
-            printf("EXITRECV WITH SD %i\n",sd->size);
-        }
-    } while(len>0 && ret>=0);
-
-
+    ret = gzsock_recv(sock_id, buf, len, flags);
     ACQUIRE_GIL();
-
 
     if (ret < 0) {
         if (ret == SOCK_ERR_TIMEOUT) {
             return ERR_TIMEOUT_EXC;
-        } else if (ret==-1234){
+        }
+#if defined(ZERYNTH_SSL)
+        else if (ret == MBEDTLS_ERR_SSL_TIMEOUT) {
+            return ERR_TIMEOUT_EXC;
+        }
+#endif
+        else if (ret==-1234) {
             return ERR_VALUE_EXC;
-        } else if (ret != SOCK_ERR_CONN_ABORTED) {
+        }
+        else if (ret != SOCK_ERR_CONN_ABORTED) {
             return ERR_IOERROR_EXC;
         }
     }
@@ -1175,7 +1185,7 @@ C_NATIVE(winc_socket_close) {
     uint32_t sock_id = PSMALLINT_VALUE(args[0]);
 
     LOCK_DRIVER();
-    close(sock_id);
+    wincsock_close(sock_id);
     UNLOCK_DRIVER();
 
     SockData *sd = get_sock_data(sock_id);
@@ -1228,6 +1238,8 @@ C_NATIVE(winc_socket_recvfrom_into) {
     return ERR_OK;
 }
 
+#define ZER_SO_RCVTIMEO 1
+
 C_NATIVE(winc_socket_setsockopt) {
     NATIVE_UNWARN();
 
@@ -1237,7 +1249,7 @@ C_NATIVE(winc_socket_setsockopt) {
     uint32_t opt = PSMALLINT_VALUE(args[2]);
 
     // SO_RCVTIMEO
-    if (opt != 1) {
+    if (opt != ZER_SO_RCVTIMEO) {
         return ERR_UNSUPPORTED_EXC;
     }
 
@@ -1247,7 +1259,14 @@ C_NATIVE(winc_socket_setsockopt) {
         if (val == 0) {
             return ERR_UNSUPPORTED_EXC;
         }
-        sock_timeout[sock_id] = val;
+
+        struct timeval tms;
+        tms.tv_sec = val / 1000;
+        tms.tv_usec = (val % 1000) * 1000;
+
+        RELEASE_GIL();
+        gzsock_setsockopt(sock_id, SOL_SOCKET, SO_RCVTIMEO, &tms, sizeof(struct timeval));
+        ACQUIRE_GIL();
     }
 
     return ERR_OK;
@@ -1278,6 +1297,266 @@ C_NATIVE(__get_chipid) {
 	return ERR_OK;
 }
 
+int winc_gzsock_socket(int family, int type, int protocol) {
+    socketInit();
+
+    LOCK_DRIVER();
+    int sock_id = socket(AF_INET, type, 0);
+    UNLOCK_DRIVER();
+
+    if (sock_id < 0) {
+        return -1;
+    }
+
+    SockData *sd = take_sock_data(sock_id);
+    if(!sd) {
+        return -1;
+    }
+
+    sock_timeout[sock_id] = 0;
+
+    return sock_id;
+}
+
+int winc_gzsock_connect(int sock_id, const struct sockaddr *addr, socklen_t addrlen) {
+    int ret;
+
+    socketInit();
+
+    uint8_t slot = cb_data_get_slot();
+    if (slot == CB_DATA_LEN) {
+        // no more slots available
+        return -1;
+    }
+
+    printf("CONNECT SLOT %i TO %i\n", slot, sock_id);
+
+    cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_CONNECT, sock_id, 0);
+
+    LOCK_DRIVER();
+    connect(sock_id, addr, addrlen);
+    UNLOCK_DRIVER();
+
+    printf("WAIT FOR RES...\n");
+    ret = cb_data_get_res(slot);
+    printf("GOT RES %i\n", ret);
+
+    if (ret) return 0;
+    return -1;
+}
+
+int winc_gzsock_send(int sock_id, const void *dataptr, size_t size, int flags) {
+    socketInit();
+
+    printf("gzsock_send %i %i\n", sock_id, size);
+
+    // workaround for undetected connection closed by peer (not completely working)
+    cb_data_force_free(CB_TYPE_SOCK, SOCKET_MSG_SEND, sock_id);
+
+    uint8_t slot = cb_data_get_slot();
+    if (slot == CB_DATA_LEN) {
+        // no more slots available
+        return -1;
+    }
+
+    uint8_t *to_send = (uint8_t*) dataptr;
+    uint16_t len = size;
+
+    cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_SEND, sock_id, 0);
+
+    LOCK_DRIVER();
+    send(sock_id, to_send, len, 0);
+    UNLOCK_DRIVER();
+
+    sint16 ret = cb_data_get_res(slot);
+
+    if (ret < 0) {
+        errno = ECONNABORTED;
+    }
+
+    return ret;
+}
+
+int winc_gzsock_write(int sock_id, const void *dataptr, size_t size) {
+    return winc_gzsock_send(sock_id, dataptr, size, 0);
+}
+
+int winc_gzsock_recv(int sock_id, void *mem, size_t len, int flags) {
+    socketInit();
+
+    uint8_t *buf = (uint8_t*) mem;
+    size_t size = len;
+
+    SockData *sd = get_sock_data(sock_id);
+    if (!sd) {
+        // no more sockets available
+        return -1;
+    }
+
+    printf("RECV %i %i %x\n",sock_id,len,buf);
+
+    sint16 ret=0;
+
+    do {
+        printf("SD SIZE %i vs %i\n",sd->size,len);
+        if (sd->size){
+            //get data from socket
+            if (sd->size>=len) {
+                memcpy(buf,sd->head,len);
+                sd->size-=len;
+                sd->head+=len;
+                len=0;
+            } else {
+                memcpy(buf,sd->head,sd->size);
+                buf+=sd->size;
+                len-=sd->size;
+                sd->size=0;
+            }
+        } else {
+            uint8_t slot = cb_data_get_slot();
+            if (slot == CB_DATA_LEN) {
+                // no more slots available
+                ret = -1234;
+                break;
+            }
+            cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_RECV, sock_id, 0);
+            cb_data[slot].info[3] = sock_id;
+            //do read
+            LOCK_DRIVER();
+            sd->head = sd->buffer;
+            recv(sock_id,sd->buffer,MAX_SOCK_BUF,sock_timeout[sock_id]);
+            //recv(sock_id, buf, len, sock_timeout[sock_id]);
+            UNLOCK_DRIVER();
+            ret = cb_data_get_res(slot);
+            printf("EXITRECV WITH SD %i\n",sd->size);
+        }
+    } while(len>0 && ret>=0);
+
+    if (ret < 0) {
+        return ret;
+    }
+    return size - len; // want to read - left to read
+}
+
+int winc_gzsock_read(int sock_id, void *mem, size_t len) {
+    return winc_gzsock_recv(sock_id, mem, len, 0);
+}
+
+int winc_gzsock_setsockopt(int sock_id, int level, int optname, const void *optval, socklen_t optlen) {
+    socketInit();
+
+    if (optname != SO_RCVTIMEO) {
+        return -1;
+    }
+
+    struct timeval *tms = (struct timeval*) optval;
+    sock_timeout[sock_id] = tms->tv_sec * 1000 + ((uint32_t) (tms->tv_usec/1000));
+
+    return 0;
+}
+
+int winc_gzsock_getsockopt(int sock_id, int level, int optname, void *optval, socklen_t *optlen) {
+
+    if (optname == SO_RCVTIMEO) {
+        struct timeval *tms = (struct timeval*) optval;
+        tms->tv_sec = sock_timeout[sock_id] / 1000;
+        tms->tv_usec = (sock_timeout[sock_id] % 1000)*1000;
+
+        return 0;
+    }
+
+    if (optname == SO_ERROR) {
+        int* opterrno = (int*) optval;
+        *opterrno = errno;
+    }
+    return -1;
+}
+
+int winc_gzsock_close(int sock_id) {
+
+    LOCK_DRIVER();
+    wincsock_close(sock_id);
+    UNLOCK_DRIVER();
+
+    SockData *sd = get_sock_data(sock_id);
+    if(sd) give_sock_data(sd);
+
+    return 0;
+}
+
+int winc_gzsock_select(int maxfdp1, void *readset, void *writeset, void *exceptset, struct timeval *tv) {
+    socketInit();
+    fd_set *read_fds = (fd_set*) readset;
+
+    int i, ret;
+    int sock_id = -1;
+
+    for (i=0; i < FD_SETSIZE; i++) {
+        if (FD_ISSET(i, read_fds)) {
+            // only one read source supported
+            sock_id = i;
+            break;
+        }
+    }
+
+    if (sock_id < 0) {
+        return -1;
+    }
+
+    SockData *sd = get_sock_data(sock_id);
+    if (!sd) {
+        // no more sockets available
+        return -1;
+    }
+
+    if (sd->size) {
+        // have data to read
+        return 1;
+    }
+
+    uint8_t slot = cb_data_get_slot();
+    if (slot == CB_DATA_LEN) {
+        // no more slots available
+        return -1;
+    }
+    cb_data_assign(slot, CB_TYPE_SOCK, SOCKET_MSG_RECV, sock_id, 0);
+    cb_data[slot].info[3] = sock_id;
+
+    uint32_t timeout = tv->tv_sec * 1000 + ((uint32_t) (tv->tv_usec/1000));
+
+    //do read
+    LOCK_DRIVER();
+    sd->head = sd->buffer;
+    recv(sock_id, sd->buffer, MAX_SOCK_BUF, timeout);
+    // recv(sock_id, sd->buffer, MAX_SOCK_BUF, 100);
+    UNLOCK_DRIVER();
+    ret = cb_data_get_res(slot);
+
+    if (ret < 0) {
+        if (ret == SOCK_ERR_TIMEOUT) {
+            return 0;
+        }
+        return -1;
+    }
+    // have data to read
+    return 1;
+}
+
+int winc_gzsock_fcntl(int s, int cmd, int val) {
+    if (cmd != F_GETFL) {
+        return -1;
+    }
+    return O_NONBLOCK;
+}
+
+
+int winc_gzsock_shutdown(int s, int how) {
+    return 0;
+}
+
+int errno;
+
+SocketAPIPointers winc_api;
 
 WINC_INFO winc_info;
 C_NATIVE(__chip_init) {
@@ -1330,6 +1609,31 @@ C_NATIVE(__chip_init) {
 
     // m2m_ssl_init(NULL);
     // m2m_ssl_set_active_ciphersuites(SSL_NON_ECC_CIPHERS_AES_128 | SSL_NON_ECC_CIPHERS_AES_256);
+
+    winc_api.socket = winc_gzsock_socket;
+    winc_api.connect = winc_gzsock_connect;
+    winc_api.setsockopt = winc_gzsock_setsockopt;
+    winc_api.getsockopt = winc_gzsock_getsockopt;
+    winc_api.send = winc_gzsock_send;
+    winc_api.sendto = NULL;
+    winc_api.write = winc_gzsock_write;
+    winc_api.recv = winc_gzsock_recv;
+    winc_api.recvfrom = NULL;
+    winc_api.read = winc_gzsock_read;
+    winc_api.close = winc_gzsock_close;
+    winc_api.shutdown = winc_gzsock_shutdown;
+    winc_api.bind = NULL;
+    winc_api.accept = NULL;
+    winc_api.listen = NULL;
+    winc_api.select = winc_gzsock_select;
+    winc_api.fcntl = winc_gzsock_fcntl;
+    winc_api.ioctl = NULL;
+    winc_api.getaddrinfo = NULL;
+    winc_api.freeaddrinfo = NULL;
+    winc_api.inet_addr = NULL;
+    winc_api.inet_ntoa = NULL;
+
+    gzsock_init(&winc_api);
 
     return ERR_OK;
 }

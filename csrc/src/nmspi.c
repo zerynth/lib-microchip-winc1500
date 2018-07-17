@@ -42,7 +42,7 @@
 
 #ifdef CONF_WINC_USE_SPI
 
-#define USE_OLD_SPI_SW
+// #define USE_OLD_SPI_SW
 
 #include "inc/nm_bus_wrapper.h"
 #include "nmspi.h"
@@ -376,27 +376,27 @@ _fail_:
 	return result;
 }
 #ifndef USE_OLD_SPI_SW
-static int spi_cmd_complete(uint8_t cmd, uint32_t adr, uint8_t *b, uint32_t sz, uint8_t clockless)
+static int spi_cmd_complete(uint8 cmd, uint32 adr, uint8 *b, uint32 sz, uint8 clockless)
 {
-	uint8_t wb[32], rb[32];
-	uint8_t wix, rix;
-	uint32_t len2;
-	uint8_t rsp;
+	uint8 wb[32], rb[32];
+	uint8 wix, rix;
+	uint32 len2;
+	uint8 rsp;
 	int len = 0;
 	int result = N_OK;
 
 	wb[0] = cmd;
 	switch (cmd) {
 	case CMD_SINGLE_READ:				/* single word (4 bytes) read */
-		wb[1] = (uint8_t)(adr >> 16);
-		wb[2] = (uint8_t)(adr >> 8);
-		wb[3] = (uint8_t)adr;
+		wb[1] = (uint8)(adr >> 16);
+		wb[2] = (uint8)(adr >> 8);
+		wb[3] = (uint8)adr;
 		len = 5;
 		break; 
 	case CMD_INTERNAL_READ:			/* internal register read */ 
-		wb[1] = (uint8_t)(adr >> 8);
+		wb[1] = (uint8)(adr >> 8);
 		if(clockless == 1)  wb[1] |= (1 << 7);
-		wb[2] = (uint8_t)adr;
+		wb[2] = (uint8)adr;
 		wb[3] = 0x00;
 		len = 5;
 		break;
@@ -420,27 +420,27 @@ static int spi_cmd_complete(uint8_t cmd, uint32_t adr, uint8_t *b, uint32_t sz, 
 		break;
 	case CMD_DMA_WRITE:					/* dma write */
 	case CMD_DMA_READ:					/* dma read */
-		wb[1] = (uint8_t)(adr >> 16);
-		wb[2] = (uint8_t)(adr >> 8);
-		wb[3] = (uint8_t)adr;
-		wb[4] = (uint8_t)(sz >> 8);
-		wb[5] = (uint8_t)(sz);
+		wb[1] = (uint8)(adr >> 16);
+		wb[2] = (uint8)(adr >> 8);
+		wb[3] = (uint8)adr;
+		wb[4] = (uint8)(sz >> 8);
+		wb[5] = (uint8)(sz);
 		len = 7;
 		break;
 	case CMD_DMA_EXT_WRITE:		/* dma extended write */
 	case CMD_DMA_EXT_READ:			/* dma extended read */
-		wb[1] = (uint8_t)(adr >> 16);
-		wb[2] = (uint8_t)(adr >> 8);
-		wb[3] = (uint8_t)adr;
-		wb[4] = (uint8_t)(sz >> 16);
-		wb[5] = (uint8_t)(sz >> 8);
-		wb[6] = (uint8_t)(sz);
+		wb[1] = (uint8)(adr >> 16);
+		wb[2] = (uint8)(adr >> 8);
+		wb[3] = (uint8)adr;
+		wb[4] = (uint8)(sz >> 16);
+		wb[5] = (uint8)(sz >> 8);
+		wb[6] = (uint8)(sz);
 		len = 8;
 		break;
 	case CMD_INTERNAL_WRITE:		/* internal register write */
-		wb[1] = (uint8_t)(adr >> 8);
+		wb[1] = (uint8)(adr >> 8);
 		if(clockless == 1)  wb[1] |= (1 << 7);
-		wb[2] = (uint8_t)(adr);
+		wb[2] = (uint8)(adr);
 		wb[3] = b[3];
 		wb[4] = b[2];
 		wb[5] = b[1];
@@ -448,9 +448,9 @@ static int spi_cmd_complete(uint8_t cmd, uint32_t adr, uint8_t *b, uint32_t sz, 
 		len = 8;
 		break;
 	case CMD_SINGLE_WRITE:			/* single word write */
-		wb[1] = (uint8_t)(adr >> 16);
-		wb[2] = (uint8_t)(adr >> 8);
-		wb[3] = (uint8_t)(adr);
+		wb[1] = (uint8)(adr >> 16);
+		wb[2] = (uint8)(adr >> 8);
+		wb[3] = (uint8)(adr);
 		wb[4] = b[3];
 		wb[5] = b[2];
 		wb[6] = b[1];
@@ -467,7 +467,7 @@ static int spi_cmd_complete(uint8_t cmd, uint32_t adr, uint8_t *b, uint32_t sz, 
 	}
 
 	if (!gu8Crc_off) {
-		wb[len-1] = (crc7(0x7f, (const uint8_t *)&wb[0], len-1)) << 1;
+		wb[len-1] = (crc7(0x7f, (const uint8 *)&wb[0], len-1)) << 1;
 	} else {
 		len -=1;
 	}
@@ -582,7 +582,7 @@ static int spi_cmd_complete(uint8_t cmd, uint32_t adr, uint8_t *b, uint32_t sz, 
 		|| (cmd == CMD_DMA_READ) || (cmd == CMD_DMA_EXT_READ)) {
 			int retry;
 			//uint16_t crc1, crc2;
-			uint8_t crc[2];
+			uint8 crc[2];
 			/**
 			Data Respnose header
 			**/
