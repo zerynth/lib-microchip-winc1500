@@ -71,11 +71,21 @@ To initialize the driver the following parameters are needed:
     __builtins__.__default_net["sock"][0] = __module__ #AF_INET
     __builtins__.__default_net["ssl"] = __module__
 
-def auto_init():
+def auto_init(ext=None):
     if __defined(BOARD,"arduino_mkr1000"):
         init(SPI1, D26, D22, D27, D28, D29)
     elif __defined(BOARD,"adafruit_feather_m0wifi"):
         init(SPI0, D20, D24, D21, D23)
+    elif __defined(BOARD, "xplained_d21"):
+        if ext == 1:
+            init(SPI0, D12, D6, D2, D7, D3)
+        else:
+            raise UnsupportedError    
+    elif __defined(BOARD, "xplained_samg55"):
+        if ext == 1:
+            init(SPI0, D12, D6, D2, D7, D3)
+        else:
+            raise UnsupportedError
     else:
         raise UnsupportedError
 

@@ -8,8 +8,10 @@
 
 #include "zerynth_sockets.h"
 
-#if defined(ZERYNTH_SSL)
+// context options definitions needed also when not using ZERYNTH_SSL
 #include "zerynth_ssl.h"
+
+#if defined(ZERYNTH_SSL)
 #include "mbedtls/ssl.h"
 #endif
 
@@ -131,8 +133,8 @@ SockData *take_sock_data(int sock){
             sock_data[i].sock = sock;
             if(!sock_data[i].buffer) {
                 sock_data[i].buffer = gc_malloc(MAX_SOCK_BUF);
-                sock_data[i].size = 0;
             }
+            sock_data[i].size = 0;
             return &sock_data[i];
         }
     }
@@ -427,33 +429,19 @@ void dns_resolve_callback(uint8* pu8HostName, uint32 hostIp) {
 
 C_NATIVE(winc_wifi_gethostbyname) {
     NATIVE_UNWARN();
+
     NetAddress addr;
-    uint32_t ip_addr;
-
-    socketInit();
-
-    uint8_t slot = cb_data_get_slot();
-    if (slot == CB_DATA_LEN) {
-        // no more slots available
-        return ERR_VALUE_EXC;
-    }
-
-    cb_data_assign(slot, CB_TYPE_DNS, 0, 0, 0);
-
-    RELEASE_GIL();
+    struct addrinfo *ai_res;
     uint8_t *hostname = PSEQUENCE_BYTES(args[0]);
 
-    LOCK_DRIVER();
-    gethostbyname(hostname);
-    UNLOCK_DRIVER();
+    RELEASE_GIL();
+    zsock_getaddrinfo(hostname, NULL, NULL, &ai_res);
 
+    addr.port = 0;
+    addr.ip = ((struct sockaddr_in*) ai_res[0].ai_addr)->sin_addr.s_addr;
 
-    ip_addr = cb_data_get_res(slot);
+    zsock_freeaddrinfo(ai_res);
     ACQUIRE_GIL();
-
-    addr.port= 0;
-    addr.ip = ip_addr;
-
 
     *res = netaddress_to_object(&addr);
 
@@ -774,6 +762,11 @@ C_NATIVE(winc_socket_socket) {
     return ERR_OK;
 }
 
+#if !defined(ZERYNTH_SSL)
+static void wifi_tls_handler_cb(uint8 u8MsgType, void * pvMsg) {
+}
+#endif
+
 #define DRV_SOCK_DGRAM 1
 #define DRV_SOCK_STREAM 0
 #define DRV_AF_INET 0
@@ -861,12 +854,32 @@ C_NATIVE(winc_secure_socket) {
 
 #else 
 
-    NATIVE_UNWARN();
-
     socketInit();
 
-    // m2m_ssl_set_active_ciphersuites(SSL_NON_ECC_CIPHERS_AES_128 | SSL_NON_ECC_CIPHERS_AES_256);
-    // m2m_ssl_set_active_ciphersuites(SSL_ECC_ALL_CIPHERS);
+    PTuple* ctx;
+    uint32_t ctxlen, options = 0;
+    ctx = (PTuple*)args[nargs - 1];
+    nargs--;
+
+    ctxlen = PSEQUENCE_ELEMENTS(ctx);
+    if (ctxlen && ctxlen != 5)
+        return ERR_TYPE_EXC;
+
+    if (ctxlen) {
+        PObject* iopts = PTUPLE_ITEM(ctx, 4);
+        options = PSMALLINT_VALUE(iopts);
+    }
+
+
+    if(M2M_SUCCESS != m2m_ssl_init(wifi_tls_handler_cb)) {
+        printf("m2m_ssl_init failed\n");
+        return ERR_IOERROR_EXC;
+    }
+
+    if(M2M_SUCCESS != m2m_ssl_set_active_ciphersuites(SSL_ENABLE_ALL_SUITES)) {
+        printf("m2m_ssl_set_active_ciphersuites failed\n");
+        return ERR_IOERROR_EXC;
+    }
 
     LOCK_DRIVER();
     int sock_id = socket(AF_INET, SOCK_STREAM, SOCKET_FLAGS_SSL);
@@ -879,6 +892,13 @@ C_NATIVE(winc_secure_socket) {
     SockData *sd = take_sock_data(sock_id);
     if(!sd) {
         return ERR_VALUE_EXC;
+    }
+
+    if ((options & _SERVER_AUTH) && (options & _CERT_NONE)) {
+        /* authentication from server not required */
+        int optval = 1;
+        setsockopt(sock_id, SOL_SSL_SOCKET, SO_SSL_BYPASS_X509_VERIF,
+            &optval, sizeof(optval));
     }
 
     sock_timeout[(uint32_t) sock_id] = 0;
@@ -915,6 +935,8 @@ C_NATIVE(winc_socket_connect) {
     if (ret < 0) {
         return ERR_CONNECTION_REF_EXC;
     }
+
+    *res = MAKE_NONE();
 
     return ERR_OK;
 }
@@ -1432,7 +1454,7 @@ int winc_gzsock_recv(int sock_id, void *mem, size_t len, int flags) {
         }
     } while(len>0 && ret>=0);
 
-    if (ret < 0) {
+    if (ret < 0 && ret != SOCK_ERR_TIMEOUT) {
         return ret;
     }
     return size - len; // want to read - left to read
@@ -1554,6 +1576,54 @@ int winc_gzsock_shutdown(int s, int how) {
     return 0;
 }
 
+int winc_gzsock_getaddrinfo(const char *node, const char* service, const struct addrinfo *hints, struct addrinfo **res) {
+    socketInit();
+
+    uint32_t ip_addr;
+    uint8_t slot = cb_data_get_slot();
+
+    if (slot == CB_DATA_LEN) {
+        // no more slots available
+        return ERR_VALUE_EXC;
+    }
+
+    printf("> get addrinfo... %s %i\n", node, gc_info(1));
+    cb_data_assign(slot, CB_TYPE_DNS, 0, 0, 0);
+
+    LOCK_DRIVER();
+    gethostbyname(node);
+    UNLOCK_DRIVER();
+
+    // printf("> wait info res\n");
+    // ip_addr = 0xF11E29C6;
+    ip_addr = cb_data_get_res(slot);
+
+    printf("ipaddr %x\n", ip_addr);
+
+    printf("> alloc response\n");
+
+    *res = gc_malloc(sizeof(struct addrinfo)*1);
+    struct addrinfo *res_0 = *res;
+
+    res_0->ai_next = NULL;
+
+    struct sockaddr_in *addr_in = gc_malloc(sizeof(struct sockaddr_in));
+    addr_in->sin_addr.s_addr = ip_addr;
+
+    res_0->ai_addr = addr_in;
+    res_0->ai_addrlen = sizeof(addr_in);
+
+    return 0;
+}
+
+int winc_gzsock_freeaddrinfo(struct addrinfo *ai_res) {
+    struct addrinfo *p;
+    for (p = ai_res; p != NULL; p = ai_res->ai_next) {
+        gc_free(p->ai_addr);
+    }
+    gc_free(ai_res);
+}
+
 int errno;
 
 SocketAPIPointers winc_api;
@@ -1584,7 +1654,7 @@ C_NATIVE(__chip_init) {
     driver_access_mutex = vosSemCreate(1);
     callback_handler_sem = vosSemCreate(0);
 
-    VThread cbt = vosThCreate(640, VOS_PRIO_NORMAL, winc_callback_handler, NULL, NULL);
+    VThread cbt = vosThCreate(1024, VOS_PRIO_NORMAL, winc_callback_handler, NULL, NULL);
     vosThResume(cbt);
 
 	/* Initialize the BSP. */
@@ -1628,8 +1698,8 @@ C_NATIVE(__chip_init) {
     winc_api.select = winc_gzsock_select;
     winc_api.fcntl = winc_gzsock_fcntl;
     winc_api.ioctl = NULL;
-    winc_api.getaddrinfo = NULL;
-    winc_api.freeaddrinfo = NULL;
+    winc_api.getaddrinfo = winc_gzsock_getaddrinfo;
+    winc_api.freeaddrinfo = winc_gzsock_freeaddrinfo;
     winc_api.inet_addr = NULL;
     winc_api.inet_ntoa = NULL;
 
