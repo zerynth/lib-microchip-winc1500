@@ -224,6 +224,17 @@ void cb_data_force_free(uint8_t cb_type, uint8_t info0, uint8_t info1) {
 
 // wifi
 
+#define ZER_AUTH_WIFI_OPEN  0
+#define ZER_AUTH_WIFI_WEP  1
+#define ZER_AUTH_WIFI_WPA2  3
+
+typedef struct _dhcp_info {
+    uint32_t u32Gateway;
+    uint32_t u32DNS;
+    uint32_t u32SubnetMask;
+} dhcp_info_t;
+dhcp_info_t winc_dhcp_info;
+
 static uint8_t wifi_connected;
 
 static void wifi_cb(uint8_t u8MsgType, void *pvMsg) {
@@ -255,7 +266,22 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg) {
             vosSemSignal(cb_data_lock);
 
             PTUPLE_SET_ITEM(sr, 0, (PObject* ) pstring_new(strlen(pstrScanResult->au8SSID), pstrScanResult->au8SSID));
-            PTUPLE_SET_ITEM(sr, 1, (PObject* ) PSMALLINT_NEW(pstrScanResult->u8AuthType - 1));
+            int auth_type;
+            switch (pstrScanResult->u8AuthType) {
+                case M2M_WIFI_SEC_OPEN:
+                    auth_type = ZER_AUTH_WIFI_OPEN;
+                    break;
+                case M2M_WIFI_SEC_WPA_PSK:
+                    auth_type = ZER_AUTH_WIFI_WPA2;
+                    break;
+                case M2M_WIFI_SEC_WEP:
+                    auth_type = ZER_AUTH_WIFI_WEP;
+                    break;
+                default:
+                    auth_type = -1;
+                    break;
+            }
+            PTUPLE_SET_ITEM(sr, 1, (PObject* ) PSMALLINT_NEW(auth_type));
             PTUPLE_SET_ITEM(sr, 2, (PObject* ) PSMALLINT_NEW(pstrScanResult->s8rssi));
             PTUPLE_SET_ITEM(sr, 3, (PObject* ) pbytes_new(6, pstrScanResult->au8BSSID));
 
@@ -300,6 +326,11 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg) {
 	{
 
 		uint8_t *pu8IPAddress = (uint8_t *)pvMsg;
+        tstrM2MIPConfig *M2MIPConfig = (tstrM2MIPConfig*)pvMsg;
+
+        winc_dhcp_info.u32Gateway = M2MIPConfig->u32Gateway;
+        winc_dhcp_info.u32DNS = M2MIPConfig->u32DNS;
+        winc_dhcp_info.u32SubnetMask = M2MIPConfig->u32SubnetMask;
 
 		printf("wifi_cb: M2M_WIFI_REQ_DHCP_CONF: IP is %u.%u.%u.%u\r\n",
 				pu8IPAddress[0], pu8IPAddress[1], pu8IPAddress[2], pu8IPAddress[3]);
@@ -325,9 +356,10 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg) {
             vosSemSignal(cb_data_lock);
 
             PTUPLE_SET_ITEM(ir, 0, (PObject* ) pbytes_new(4, pstrConnInfo->au8IPAddr));
-            PTUPLE_SET_ITEM(ir, 1, (PObject* ) pstring_new(1,"."));
-            PTUPLE_SET_ITEM(ir, 2, (PObject* ) pstring_new(1,"."));
-            PTUPLE_SET_ITEM(ir, 3, (PObject* ) pstring_new(1,"."));
+            PTUPLE_SET_ITEM(ir, 1, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32SubnetMask))); // netmask
+            PTUPLE_SET_ITEM(ir, 2, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32Gateway))); // gateway
+            PTUPLE_SET_ITEM(ir, 3, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32DNS))); // dns
+
             PTUPLE_SET_ITEM(ir, 4, (PObject* ) pbytes_new(6, pstrConnInfo->au8MACAddress));
 
             vosSemSignal(cb_data[slot].sem);
@@ -342,6 +374,12 @@ static void wifi_cb(uint8_t u8MsgType, void *pvMsg) {
 	}
 }
 
+#define cstringify(bstring) do {                           \
+    bstring ## _cstring = gc_malloc(bstring ## _len + 1);  \
+    memcpy(bstring ## _cstring, bstring, bstring ## _len); \
+    bstring ## _cstring[bstring ## _len] = 0;              \
+} while (0)
+
 C_NATIVE(winc_wifi_link) {
     NATIVE_UNWARN();
 
@@ -352,7 +390,9 @@ C_NATIVE(winc_wifi_link) {
     }
 
     uint8_t *ssid = PSEQUENCE_BYTES(args[0]);
-    uint8_t sec;
+    uint32_t ssid_len = PSEQUENCE_ELEMENTS(args[0]);
+
+    uint32_t sec;
     switch (PSMALLINT_VALUE(args[1])) {
         case 1:
             sec = M2M_WIFI_SEC_WEP;
@@ -365,7 +405,10 @@ C_NATIVE(winc_wifi_link) {
             sec = M2M_WIFI_SEC_OPEN;
             break;
     }
-    uint8_t *psw = PSEQUENCE_BYTES(args[2]);
+
+    uint8_t *psw = PSEQUENCE_BYTES(args[2]), *psw_cstring;
+    uint32_t psw_len = PSEQUENCE_ELEMENTS(args[2]);
+    cstringify(psw);
 
     wifi_connected = 0;
 
@@ -377,11 +420,13 @@ C_NATIVE(winc_wifi_link) {
 
     RELEASE_GIL();
     LOCK_DRIVER();
-    m2m_wifi_connect(ssid, PSEQUENCE_ELEMENTS(args[0]), sec, psw, M2M_WIFI_CH_ALL);
+    m2m_wifi_connect(ssid, ssid_len, sec, psw_cstring, M2M_WIFI_CH_ALL);
     UNLOCK_DRIVER();
 
     wifi_connected = cb_data_get_res(slot);
     ACQUIRE_GIL();
+
+    gc_free(psw_cstring);
 
     if (!wifi_connected) {
         return ERR_CONNECTION_REF_EXC;

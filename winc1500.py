@@ -154,8 +154,11 @@ def __link_info():
 
 def link_info():
     rr = __link_info()
-    ip = '.'.join([ str(xx) for xx in rr[0]])
-    return (ip, rr[1], rr[2], rr[3], rr[4])
+    ip = '.'.join([ str(byte) for byte in rr[0]])
+    netmask = '.'.join([ str(byte) for byte in rr[1]])
+    gateway = '.'.join([ str(byte) for byte in rr[2]])
+    dns = '.'.join([ str(byte) for byte in rr[3]])
+    return (ip, netmask, gateway, dns, rr[4])
 
 def set_link_info(ip, mask, gw, dns):
     raise UnsupportedError
