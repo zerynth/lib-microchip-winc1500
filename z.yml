@@ -1,0 +1,13 @@
+---
+description: Driver for WINC1500 IoT IEEE 802.11 Network Controller
+fullname: lib.microchip.winc1500
+info:
+    chip_manufacturer: microchip
+    chip_name: WINC1500
+    name: Wi-Fi Driver
+    type: Connectivity
+keywords:
+- wireless
+- wifi
+title: WINC1500
+...
