@@ -118,6 +118,7 @@ def auto_init(ext=None):
 ], ["VHAL_SPI","__SAMD21G18AU__"],
 [
     "-I.../csrc",
+    "-I.../csrc/lwip/src/include/",
     #-if ZERYNTH_SSL
     "-I#csrc/tls/mbedtls/include",
     #-endif
