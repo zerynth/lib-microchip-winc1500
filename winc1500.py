@@ -92,10 +92,11 @@ def auto_init(ext=None):
 
 @native_c("__chip_init", [
     #-if ZERYNTH_SSL
-    "#csrc/misc/zstdlib.c",
     "#csrc/tls/mbedtls/library/*",
     #-endif
+    "#csrc/misc/zstdlib.c",
     "#csrc/zsockets/*",
+    "#csrc/hwcrypto/*",
     "csrc/src/nm_bsp.c",
     "csrc/src/nm_bus_wrapper.c",
     "csrc/src/nm_common.c",
@@ -122,7 +123,9 @@ def auto_init(ext=None):
     #-if ZERYNTH_SSL
     "-I#csrc/tls/mbedtls/include",
     #-endif
-    "-I#csrc/zsockets"
+    "-I#csrc/zsockets",
+    "-I#csrc/hwcrypto",
+    "-I#csrc/misc",
 ])
 def __chip_init(spidrv,cs,int_pin,rst,enable,wake,clock,drvinfo):
     pass

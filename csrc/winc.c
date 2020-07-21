@@ -8,12 +8,20 @@
 
 #include "zerynth_sockets.h"
 
-// context options definitions needed also when not using ZERYNTH_SSL
-#include "zerynth_ssl.h"
 
-#if defined(ZERYNTH_SSL)
-#include "mbedtls/ssl.h"
-#endif
+
+#define _CERT_NONE 1
+#define _CERT_OPTIONAL 2
+#define _CERT_REQUIRED 4
+#define _CLIENT_AUTH 8
+#define _SERVER_AUTH 16
+
+
+// context options definitions needed also when not using ZERYNTH_SSL
+
+/*#if defined(ZERYNTH_SSL)*/
+/*#include "mbedtls/ssl.h"*/
+/*#endif*/
 
 // #define printf(...) vbl_printf_stdout(__VA_ARGS__)
 #define printf(...)
@@ -238,140 +246,140 @@ dhcp_info_t winc_dhcp_info;
 static uint8_t wifi_connected;
 
 static void wifi_cb(uint8_t u8MsgType, void *pvMsg) {
-	switch (u8MsgType) {
+    switch (u8MsgType) {
 
-    case M2M_WIFI_RESP_SCAN_DONE:
-	{
-		tstrM2mScanDone *pstrInfo = (tstrM2mScanDone *)pvMsg;
+        case M2M_WIFI_RESP_SCAN_DONE:
+            {
+                tstrM2mScanDone *pstrInfo = (tstrM2mScanDone *)pvMsg;
 
-        uint8_t info[] = { M2M_WIFI_RESP_SCAN_DONE };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
+                uint8_t info[] = { M2M_WIFI_RESP_SCAN_DONE };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
 
-        if (slot != CB_DATA_LEN) {
-            cb_data_set_res(slot, pstrInfo->u8NumofCh);
-        }
-		break;
-	}
-
-	case M2M_WIFI_RESP_SCAN_RESULT:
-	{
-
-        uint8_t info[] = { M2M_WIFI_RESP_SCAN_RESULT };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
-
-        if (slot != CB_DATA_LEN) {
-            tstrM2mWifiscanResult *pstrScanResult = (tstrM2mWifiscanResult *)pvMsg;
-            vosSemWait(cb_data_lock);
-            PObject *sr = (PObject* ) cb_data[slot].res;
-            vosSemSignal(cb_data_lock);
-
-            PTUPLE_SET_ITEM(sr, 0, (PObject* ) pstring_new(strlen(pstrScanResult->au8SSID), pstrScanResult->au8SSID));
-            int auth_type;
-            switch (pstrScanResult->u8AuthType) {
-                case M2M_WIFI_SEC_OPEN:
-                    auth_type = ZER_AUTH_WIFI_OPEN;
-                    break;
-                case M2M_WIFI_SEC_WPA_PSK:
-                    auth_type = ZER_AUTH_WIFI_WPA2;
-                    break;
-                case M2M_WIFI_SEC_WEP:
-                    auth_type = ZER_AUTH_WIFI_WEP;
-                    break;
-                default:
-                    auth_type = -1;
-                    break;
-            }
-            PTUPLE_SET_ITEM(sr, 1, (PObject* ) PSMALLINT_NEW(auth_type));
-            PTUPLE_SET_ITEM(sr, 2, (PObject* ) PSMALLINT_NEW(pstrScanResult->s8rssi));
-            PTUPLE_SET_ITEM(sr, 3, (PObject* ) pbytes_new(6, pstrScanResult->au8BSSID));
-
-            vosSemSignal(cb_data[slot].sem);
-        }
-		break;
-	}
-
-	case M2M_WIFI_RESP_CON_STATE_CHANGED:
-	{
-        tstrM2mWifiStateChanged *pstrWifiState = (tstrM2mWifiStateChanged *)pvMsg;
-        uint8_t info[] = { M2M_WIFI_RESP_CON_STATE_CHANGED };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
-
-        if (slot != CB_DATA_LEN) {
-
-            if (pstrWifiState->u8CurrState == M2M_WIFI_CONNECTED) {
-                printf("wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED\r\n");
-
-                vosSemWait(cb_data_lock);
-                cb_data[slot].info[0] = M2M_WIFI_REQ_DHCP_CONF;
-                vosSemSignal(cb_data_lock);
-
-                // legacy, automatically executed
-                // m2m_wifi_request_dhcp_client();
-
-            } else if (pstrWifiState->u8CurrState == M2M_WIFI_DISCONNECTED) {
-                cb_data_set_res(slot, 0);
+                if (slot != CB_DATA_LEN) {
+                    cb_data_set_res(slot, pstrInfo->u8NumofCh);
+                }
+                break;
             }
 
-        }
-        else {
-            if (pstrWifiState->u8CurrState == M2M_WIFI_DISCONNECTED) {
-                wifi_connected = 0;
+        case M2M_WIFI_RESP_SCAN_RESULT:
+            {
+
+                uint8_t info[] = { M2M_WIFI_RESP_SCAN_RESULT };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
+
+                if (slot != CB_DATA_LEN) {
+                    tstrM2mWifiscanResult *pstrScanResult = (tstrM2mWifiscanResult *)pvMsg;
+                    vosSemWait(cb_data_lock);
+                    PObject *sr = (PObject* ) cb_data[slot].res;
+                    vosSemSignal(cb_data_lock);
+
+                    PTUPLE_SET_ITEM(sr, 0, (PObject* ) pstring_new(strlen(pstrScanResult->au8SSID), pstrScanResult->au8SSID));
+                    int auth_type;
+                    switch (pstrScanResult->u8AuthType) {
+                        case M2M_WIFI_SEC_OPEN:
+                            auth_type = ZER_AUTH_WIFI_OPEN;
+                            break;
+                        case M2M_WIFI_SEC_WPA_PSK:
+                            auth_type = ZER_AUTH_WIFI_WPA2;
+                            break;
+                        case M2M_WIFI_SEC_WEP:
+                            auth_type = ZER_AUTH_WIFI_WEP;
+                            break;
+                        default:
+                            auth_type = -1;
+                            break;
+                    }
+                    PTUPLE_SET_ITEM(sr, 1, (PObject* ) PSMALLINT_NEW(auth_type));
+                    PTUPLE_SET_ITEM(sr, 2, (PObject* ) PSMALLINT_NEW(pstrScanResult->s8rssi));
+                    PTUPLE_SET_ITEM(sr, 3, (PObject* ) pbytes_new(6, pstrScanResult->au8BSSID));
+
+                    vosSemSignal(cb_data[slot].sem);
+                }
+                break;
             }
-        }
 
-		break;
-	}
+        case M2M_WIFI_RESP_CON_STATE_CHANGED:
+            {
+                tstrM2mWifiStateChanged *pstrWifiState = (tstrM2mWifiStateChanged *)pvMsg;
+                uint8_t info[] = { M2M_WIFI_RESP_CON_STATE_CHANGED };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
 
-	case M2M_WIFI_REQ_DHCP_CONF:
-	{
+                if (slot != CB_DATA_LEN) {
 
-		uint8_t *pu8IPAddress = (uint8_t *)pvMsg;
-        tstrM2MIPConfig *M2MIPConfig = (tstrM2MIPConfig*)pvMsg;
+                    if (pstrWifiState->u8CurrState == M2M_WIFI_CONNECTED) {
+                        printf("wifi_cb: M2M_WIFI_RESP_CON_STATE_CHANGED: CONNECTED\r\n");
 
-        winc_dhcp_info.u32Gateway = M2MIPConfig->u32Gateway;
-        winc_dhcp_info.u32DNS = M2MIPConfig->u32DNS;
-        winc_dhcp_info.u32SubnetMask = M2MIPConfig->u32SubnetMask;
+                        vosSemWait(cb_data_lock);
+                        cb_data[slot].info[0] = M2M_WIFI_REQ_DHCP_CONF;
+                        vosSemSignal(cb_data_lock);
 
-		printf("wifi_cb: M2M_WIFI_REQ_DHCP_CONF: IP is %u.%u.%u.%u\r\n",
-				pu8IPAddress[0], pu8IPAddress[1], pu8IPAddress[2], pu8IPAddress[3]);
+                        // legacy, automatically executed
+                        // m2m_wifi_request_dhcp_client();
 
-        uint8_t info[] = { M2M_WIFI_REQ_DHCP_CONF };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
-        if (slot != CB_DATA_LEN) {
-            cb_data_set_res(slot, 1);
-        }
-		break;
-	}
+                    } else if (pstrWifiState->u8CurrState == M2M_WIFI_DISCONNECTED) {
+                        cb_data_set_res(slot, 0);
+                    }
 
-    case M2M_WIFI_RESP_CONN_INFO:
-	{
+                }
+                else {
+                    if (pstrWifiState->u8CurrState == M2M_WIFI_DISCONNECTED) {
+                        wifi_connected = 0;
+                    }
+                }
 
-        uint8_t info[] = { M2M_WIFI_RESP_CONN_INFO };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
+                break;
+            }
 
-        if (slot != CB_DATA_LEN) {
-            tstrM2MConnInfo *pstrConnInfo = (tstrM2MConnInfo *)pvMsg;
-            vosSemWait(cb_data_lock);
-            PObject *ir = (PObject* ) cb_data[slot].res;
-            vosSemSignal(cb_data_lock);
+        case M2M_WIFI_REQ_DHCP_CONF:
+            {
 
-            PTUPLE_SET_ITEM(ir, 0, (PObject* ) pbytes_new(4, pstrConnInfo->au8IPAddr));
-            PTUPLE_SET_ITEM(ir, 1, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32SubnetMask))); // netmask
-            PTUPLE_SET_ITEM(ir, 2, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32Gateway))); // gateway
-            PTUPLE_SET_ITEM(ir, 3, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32DNS))); // dns
+                uint8_t *pu8IPAddress = (uint8_t *)pvMsg;
+                tstrM2MIPConfig *M2MIPConfig = (tstrM2MIPConfig*)pvMsg;
 
-            PTUPLE_SET_ITEM(ir, 4, (PObject* ) pbytes_new(6, pstrConnInfo->au8MACAddress));
+                winc_dhcp_info.u32Gateway = M2MIPConfig->u32Gateway;
+                winc_dhcp_info.u32DNS = M2MIPConfig->u32DNS;
+                winc_dhcp_info.u32SubnetMask = M2MIPConfig->u32SubnetMask;
 
-            vosSemSignal(cb_data[slot].sem);
-        }
-		break;
-	}
+                printf("wifi_cb: M2M_WIFI_REQ_DHCP_CONF: IP is %u.%u.%u.%u\r\n",
+                        pu8IPAddress[0], pu8IPAddress[1], pu8IPAddress[2], pu8IPAddress[3]);
 
-	default:
-	{
-		break;
-	}
-	}
+                uint8_t info[] = { M2M_WIFI_REQ_DHCP_CONF };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
+                if (slot != CB_DATA_LEN) {
+                    cb_data_set_res(slot, 1);
+                }
+                break;
+            }
+
+        case M2M_WIFI_RESP_CONN_INFO:
+            {
+
+                uint8_t info[] = { M2M_WIFI_RESP_CONN_INFO };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_WIFI, 1, info);
+
+                if (slot != CB_DATA_LEN) {
+                    tstrM2MConnInfo *pstrConnInfo = (tstrM2MConnInfo *)pvMsg;
+                    vosSemWait(cb_data_lock);
+                    PObject *ir = (PObject* ) cb_data[slot].res;
+                    vosSemSignal(cb_data_lock);
+
+                    PTUPLE_SET_ITEM(ir, 0, (PObject* ) pbytes_new(4, pstrConnInfo->au8IPAddr));
+                    PTUPLE_SET_ITEM(ir, 1, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32SubnetMask))); // netmask
+                    PTUPLE_SET_ITEM(ir, 2, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32Gateway))); // gateway
+                    PTUPLE_SET_ITEM(ir, 3, (PObject* ) pbytes_new(4, &(winc_dhcp_info.u32DNS))); // dns
+
+                    PTUPLE_SET_ITEM(ir, 4, (PObject* ) pbytes_new(6, pstrConnInfo->au8MACAddress));
+
+                    vosSemSignal(cb_data[slot].sem);
+                }
+                break;
+            }
+
+        default:
+            {
+                break;
+            }
+    }
 }
 
 #define cstringify(bstring) do {                           \
@@ -597,186 +605,186 @@ uint32_t sock_timeout[MAX_SOCKET];
 static void socket_cb(SOCKET sock, uint8_t u8Msg, void *pvMsg)
 {
     printf("SOCKET CB %i %i %x\n",sock,u8Msg,pvMsg);
-	switch (u8Msg) {
-	/* Socket connected */
-	case SOCKET_MSG_CONNECT:
-	{
-        uint8_t info[] = { SOCKET_MSG_CONNECT, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-    		tstrSocketConnectMsg *pstrConnect = (tstrSocketConnectMsg *)pvMsg;
-    		if (pstrConnect && pstrConnect->s8Error >= 0) {
+    switch (u8Msg) {
+        /* Socket connected */
+        case SOCKET_MSG_CONNECT:
+            {
+                uint8_t info[] = { SOCKET_MSG_CONNECT, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    tstrSocketConnectMsg *pstrConnect = (tstrSocketConnectMsg *)pvMsg;
+                    if (pstrConnect && pstrConnect->s8Error >= 0) {
 
-                cb_data_set_res(slot, 1);
-                printf("socket_cb: connect success!\r\n");
+                        cb_data_set_res(slot, 1);
+                        printf("socket_cb: connect success!\r\n");
 
-            } else {
-                printf("socket_cb: connect error! %i\r\n", pstrConnect->s8Error);
-                cb_data_set_res(slot, 0);
-            }
-        }
-    }
-    break;
-
-	/* Message send */
-    case SOCKET_MSG_SEND:
-    {
-        uint8_t info[] = { SOCKET_MSG_SEND, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-            sint16 *sent = (sint16 *)pvMsg;
-            // if (*sent > 0) {
-            cb_data_set_res(slot, *sent);
-            // }
-            // else {
-            //     cb_data_set_res(slot, 0);
-            // }
-            printf("socket_cb: send result %i\r\n", *sent);
-        }
-	}
-	break;
-
-	/* Message receive */
-	case SOCKET_MSG_RECV:
-	{
-        //printf("SOCK!\n");
-        tstrSocketRecvMsg *pstrRecv = (tstrSocketRecvMsg *)pvMsg;
-        printf("RR %i/%i\n",pstrRecv->s16BufferSize,pstrRecv->u16RemainingSize);
-
-        //printf("SOCK_RECV %i\n",pstrRecv->s16BufferSize);
-        uint8_t info[] = { SOCKET_MSG_RECV, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-            SockData *sd = get_sock_data(cb_data[slot].info[3]);
-            printf("SD RECV %x %i",sd,cb_data[slot].info[3]);
-            if (sd) {
-                if (pstrRecv->s16BufferSize > 0) {
-                    sd->size = pstrRecv->s16BufferSize;
-                }
-                else {
-                    // timeout or error occurred
-                    sd->size = 0;
+                    } else {
+                        printf("socket_cb: connect error! %i\r\n", pstrConnect->s8Error);
+                        cb_data_set_res(slot, 0);
+                    }
                 }
             }
-            cb_data_set_res(slot, pstrRecv->s16BufferSize);
-        }
+            break;
+
+            /* Message send */
+        case SOCKET_MSG_SEND:
+            {
+                uint8_t info[] = { SOCKET_MSG_SEND, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    sint16 *sent = (sint16 *)pvMsg;
+                    // if (*sent > 0) {
+                    cb_data_set_res(slot, *sent);
+                    // }
+                    // else {
+                    //     cb_data_set_res(slot, 0);
+                    // }
+                    printf("socket_cb: send result %i\r\n", *sent);
+                }
+            }
+            break;
+
+            /* Message receive */
+        case SOCKET_MSG_RECV:
+            {
+                //printf("SOCK!\n");
+                tstrSocketRecvMsg *pstrRecv = (tstrSocketRecvMsg *)pvMsg;
+                printf("RR %i/%i\n",pstrRecv->s16BufferSize,pstrRecv->u16RemainingSize);
+
+                //printf("SOCK_RECV %i\n",pstrRecv->s16BufferSize);
+                uint8_t info[] = { SOCKET_MSG_RECV, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    SockData *sd = get_sock_data(cb_data[slot].info[3]);
+                    printf("SD RECV %x %i",sd,cb_data[slot].info[3]);
+                    if (sd) {
+                        if (pstrRecv->s16BufferSize > 0) {
+                            sd->size = pstrRecv->s16BufferSize;
+                        }
+                        else {
+                            // timeout or error occurred
+                            sd->size = 0;
+                        }
+                    }
+                    cb_data_set_res(slot, pstrRecv->s16BufferSize);
+                }
+            }
+            break;
+
+        case SOCKET_MSG_BIND:
+            {
+                uint8_t info[] = { SOCKET_MSG_BIND, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    tstrSocketBindMsg *pstrBind = (tstrSocketBindMsg *)pvMsg;
+                    if (pstrBind && pstrBind->status >= 0) {
+
+                        cb_data_set_res(slot, 1);
+                        printf("socket_cb: bind success!\r\n");
+
+                    } else {
+                        printf("socket_cb: bind error!\r\n");
+                        cb_data_set_res(slot, 0);
+                    }
+                }
+            }
+            break;
+
+        case SOCKET_MSG_LISTEN:
+            {
+                uint8_t info[] = { SOCKET_MSG_LISTEN, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    tstrSocketListenMsg *pstrListen = (tstrSocketListenMsg *)pvMsg;
+                    if (pstrListen && pstrListen->status >= 0) {
+
+                        cb_data_set_res(slot, 1);
+                        printf("socket_cb: listen success!\r\n");
+
+                    } else {
+                        printf("socket_cb: listen error!\r\n");
+                        cb_data_set_res(slot, 0);
+                    }
+                }
+            }
+            break;
+
+        case SOCKET_MSG_ACCEPT:
+            {
+                uint8_t info[] = { SOCKET_MSG_ACCEPT, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    vosSemWait(cb_data_lock);
+                    PObject *sock_addr = (PObject* ) cb_data[slot].res;
+                    vosSemSignal(cb_data_lock);
+
+                    tstrSocketAcceptMsg *pstrAccept = (tstrSocketAcceptMsg *)pvMsg;
+                    if (pstrAccept->sock >= 0) {
+
+                        PTUPLE_SET_ITEM(sock_addr, 0, (PObject* ) PSMALLINT_NEW(pstrAccept->sock));
+                        NetAddress netaddr;
+                        netaddr.port = _ntohs(pstrAccept->strAddr.sin_port);
+                        netaddr.ip   = _ntohl(pstrAccept->strAddr.sin_addr.s_addr);
+                        PTUPLE_SET_ITEM(sock_addr, 1, (PObject* ) netaddress_to_object(&netaddr));
+
+                        printf("socket_cb: accept success!\r\n");
+
+                    } else {
+                        printf("socket_cb: accept error!\r\n");
+                        // sock_acc->error = 1;
+                        PTUPLE_SET_ITEM(sock_addr, 0, (PObject* ) PSMALLINT_NEW(-1));
+                    }
+                    vosSemSignal(cb_data[slot].sem);
+                }
+            }
+            break;
+
+
+        case SOCKET_MSG_RECVFROM:
+            {
+                uint8_t info[] = { SOCKET_MSG_RECVFROM, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    vosSemWait(cb_data_lock);
+                    PObject *rd_addr = (PObject* ) cb_data[slot].res;
+                    vosSemSignal(cb_data_lock);
+                    tstrSocketRecvMsg *pstrRecv = (tstrSocketRecvMsg *)pvMsg;
+                    PTUPLE_SET_ITEM(rd_addr, 0, (PObject* ) PSMALLINT_NEW(pstrRecv->s16BufferSize));
+                    if (pstrRecv && pstrRecv->s16BufferSize > 0) {
+                        NetAddress netaddr;
+                        netaddr.port = _ntohs(pstrRecv->strRemoteAddr.sin_port);
+                        netaddr.ip   = _ntohl(pstrRecv->strRemoteAddr.sin_addr.s_addr);
+                        PTUPLE_SET_ITEM(rd_addr, 1, (PObject* ) netaddress_to_object(&netaddr));
+
+                        printf("socket_cb: recvfrom success!\r\n");
+                    } else {
+                        printf("socket_cb: recvfrom error!\r\n");
+                    }
+                    vosSemSignal(cb_data[slot].sem);
+                }
+            }
+            break;
+
+        case SOCKET_MSG_SENDTO:
+            {
+                uint8_t info[] = { SOCKET_MSG_SENDTO, sock };
+                uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
+                if (slot != CB_DATA_LEN) {
+                    sint16 *sent = (sint16 *)pvMsg;
+                    if (*sent > 0) {
+                        cb_data_set_res(slot, (uint16_t) *sent);
+                    }
+                    else {
+                        cb_data_set_res(slot, 0);
+                    }
+                    printf("socket_cb: sendto success!\r\n");
+                }
+            }
+            break;
+
+        default:
+            break;
     }
-    break;
-
-    case SOCKET_MSG_BIND:
-    {
-        uint8_t info[] = { SOCKET_MSG_BIND, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-    		tstrSocketBindMsg *pstrBind = (tstrSocketBindMsg *)pvMsg;
-    		if (pstrBind && pstrBind->status >= 0) {
-
-                cb_data_set_res(slot, 1);
-                printf("socket_cb: bind success!\r\n");
-
-            } else {
-                printf("socket_cb: bind error!\r\n");
-                cb_data_set_res(slot, 0);
-            }
-        }
-    }
-    break;
-
-    case SOCKET_MSG_LISTEN:
-    {
-        uint8_t info[] = { SOCKET_MSG_LISTEN, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-    		tstrSocketListenMsg *pstrListen = (tstrSocketListenMsg *)pvMsg;
-    		if (pstrListen && pstrListen->status >= 0) {
-
-                cb_data_set_res(slot, 1);
-                printf("socket_cb: listen success!\r\n");
-
-            } else {
-                printf("socket_cb: listen error!\r\n");
-                cb_data_set_res(slot, 0);
-            }
-        }
-    }
-    break;
-
-    case SOCKET_MSG_ACCEPT:
-    {
-        uint8_t info[] = { SOCKET_MSG_ACCEPT, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-            vosSemWait(cb_data_lock);
-            PObject *sock_addr = (PObject* ) cb_data[slot].res;
-            vosSemSignal(cb_data_lock);
-
-    		tstrSocketAcceptMsg *pstrAccept = (tstrSocketAcceptMsg *)pvMsg;
-    		if (pstrAccept->sock >= 0) {
-
-                PTUPLE_SET_ITEM(sock_addr, 0, (PObject* ) PSMALLINT_NEW(pstrAccept->sock));
-                NetAddress netaddr;
-                netaddr.port = _ntohs(pstrAccept->strAddr.sin_port);
-                netaddr.ip   = _ntohl(pstrAccept->strAddr.sin_addr.s_addr);
-                PTUPLE_SET_ITEM(sock_addr, 1, (PObject* ) netaddress_to_object(&netaddr));
-
-                printf("socket_cb: accept success!\r\n");
-
-            } else {
-                printf("socket_cb: accept error!\r\n");
-                // sock_acc->error = 1;
-                PTUPLE_SET_ITEM(sock_addr, 0, (PObject* ) PSMALLINT_NEW(-1));
-            }
-            vosSemSignal(cb_data[slot].sem);
-        }
-    }
-    break;
-
-
-    case SOCKET_MSG_RECVFROM:
-	{
-        uint8_t info[] = { SOCKET_MSG_RECVFROM, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-            vosSemWait(cb_data_lock);
-            PObject *rd_addr = (PObject* ) cb_data[slot].res;
-            vosSemSignal(cb_data_lock);
-    		tstrSocketRecvMsg *pstrRecv = (tstrSocketRecvMsg *)pvMsg;
-            PTUPLE_SET_ITEM(rd_addr, 0, (PObject* ) PSMALLINT_NEW(pstrRecv->s16BufferSize));
-    		if (pstrRecv && pstrRecv->s16BufferSize > 0) {
-                NetAddress netaddr;
-                netaddr.port = _ntohs(pstrRecv->strRemoteAddr.sin_port);
-                netaddr.ip   = _ntohl(pstrRecv->strRemoteAddr.sin_addr.s_addr);
-                PTUPLE_SET_ITEM(rd_addr, 1, (PObject* ) netaddress_to_object(&netaddr));
-
-    			printf("socket_cb: recvfrom success!\r\n");
-    		} else {
-    			printf("socket_cb: recvfrom error!\r\n");
-    		}
-            vosSemSignal(cb_data[slot].sem);
-        }
-	}
-	break;
-
-    case SOCKET_MSG_SENDTO:
-    {
-        uint8_t info[] = { SOCKET_MSG_SENDTO, sock };
-        uint8_t slot = cb_data_find_slot(CB_TYPE_SOCK, 2, info);
-        if (slot != CB_DATA_LEN) {
-            sint16 *sent = (sint16 *)pvMsg;
-            if (*sent > 0) {
-                cb_data_set_res(slot, (uint16_t) *sent);
-            }
-            else {
-                cb_data_set_res(slot, 0);
-            }
-            printf("socket_cb: sendto success!\r\n");
-        }
-	}
-	break;
-
-	default:
-		break;
-	}
     //printf("EXIT SOCK!\n");
 }
 
@@ -792,10 +800,10 @@ C_NATIVE(winc_socket_socket) {
 
     RELEASE_GIL();
     int32_t sock_id = gzsock_socket(
-          AF_INET,
-          type + 1,
-          IPPROTO_TCP,
-          NULL);
+            AF_INET,
+            type + 1,
+            IPPROTO_TCP,
+            NULL);
     ACQUIRE_GIL();
 
     if (sock_id < 0) {
@@ -886,16 +894,16 @@ C_NATIVE(winc_secure_socket) {
     RELEASE_GIL();
     printf("%x\n",gzsock_socket);
     sock = gzsock_socket(
-          AF_INET,
-          type + 1, // zerynth sockets type differ from winc sockets type by one
-          IPPROTO_TCP,
-          (ctxlen) ? &nfo:NULL);
-  ACQUIRE_GIL();
-  printf("CMD_SOCKET: %i %i\n", sock, errno);
-  if (sock < 0)
-    return ERR_IOERROR_EXC;
-  *res = PSMALLINT_NEW(sock);
-  return ERR_OK;
+            AF_INET,
+            type + 1, // zerynth sockets type differ from winc sockets type by one
+            IPPROTO_TCP,
+            (ctxlen) ? &nfo:NULL);
+    ACQUIRE_GIL();
+    printf("CMD_SOCKET: %i %i\n", sock, errno);
+    if (sock < 0)
+        return ERR_IOERROR_EXC;
+    *res = PSMALLINT_NEW(sock);
+    return ERR_OK;
 
 #else 
 
@@ -943,7 +951,7 @@ C_NATIVE(winc_secure_socket) {
         /* authentication from server not required */
         int optval = 1;
         setsockopt(sock_id, SOL_SSL_SOCKET, SO_SSL_BYPASS_X509_VERIF,
-            &optval, sizeof(optval));
+                &optval, sizeof(optval));
     }
 
     sock_timeout[(uint32_t) sock_id] = 0;
@@ -967,7 +975,7 @@ C_NATIVE(winc_socket_connect) {
     int ret;
 
     addr.sin_family = AF_INET;
-	addr.sin_port = netaddr.port;
+    addr.sin_port = netaddr.port;
     addr.sin_addr.s_addr = netaddr.ip;
 
     printf("CONNECT TO %x %x\n",addr.sin_port,addr.sin_addr.s_addr);
@@ -1045,13 +1053,13 @@ C_NATIVE(winc_socket_recv_into) {
     int32_t ofs;
     int32_t sock_id;
     if (parse_py_args("isiiI", nargs, args,
-                    &sock_id,
-                    &buf, &len,
-                    &sz,
-                    &flags,
-                    0,
-                    &ofs
-                   ) != 5) return ERR_TYPE_EXC;
+                &sock_id,
+                &buf, &len,
+                &sz,
+                &flags,
+                0,
+                &ofs
+                ) != 5) return ERR_TYPE_EXC;
 
     buf += ofs;
     len -= ofs;
@@ -1225,7 +1233,7 @@ C_NATIVE(winc_socket_sendto) {
 
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
-	// addr.sin_port = _htons(PSMALLINT_VALUE(args[3]));
+    // addr.sin_port = _htons(PSMALLINT_VALUE(args[3]));
     // addr.sin_addr.s_addr = _htonl((uint32_t) PSMALLINT_VALUE(args[2]));
     addr.sin_port = netaddr.port;
     addr.sin_addr.s_addr = netaddr.ip;
@@ -1356,12 +1364,12 @@ void winc_callback_handler(void *data) {
 C_NATIVE(__get_chipid) {
     NATIVE_UNWARN();
 
-	/* Display WINC1500 chip information. */
-	printf("Chip ID : \r\t\t\t%x\r\n", (unsigned int)nmi_get_chipid());
-	printf("RF Revision ID : \r\t\t\t%x\r\n", (unsigned int)nmi_get_rfrevid());
-	printf("Done.\r\n\r\n");
+    /* Display WINC1500 chip information. */
+    printf("Chip ID : \r\t\t\t%x\r\n", (unsigned int)nmi_get_chipid());
+    printf("RF Revision ID : \r\t\t\t%x\r\n", (unsigned int)nmi_get_rfrevid());
+    printf("Done.\r\n\r\n");
 
-	return ERR_OK;
+    return ERR_OK;
 }
 
 int winc_gzsock_socket(int family, int type, int protocol) {
@@ -1677,8 +1685,8 @@ WINC_INFO winc_info;
 C_NATIVE(__chip_init) {
     NATIVE_UNWARN();
 
-	tstrWifiInitParam param;
-	int8_t ret;
+    tstrWifiInitParam param;
+    int8_t ret;
 
     //remove drvinfo from parsing
     nargs--;
@@ -1702,20 +1710,20 @@ C_NATIVE(__chip_init) {
     VThread cbt = vosThCreate(1024, VOS_PRIO_NORMAL, winc_callback_handler, NULL, NULL);
     vosThResume(cbt);
 
-	/* Initialize the BSP. */
-	nm_bsp_init();
+    /* Initialize the BSP. */
+    nm_bsp_init();
 
-	/* Initialize Wi-Fi parameters structure. */
-	memset((uint8_t *)&param, 0, sizeof(tstrWifiInitParam));
+    /* Initialize Wi-Fi parameters structure. */
+    memset((uint8_t *)&param, 0, sizeof(tstrWifiInitParam));
 
-	/* Initialize Wi-Fi driver with data and status callbacks. */
+    /* Initialize Wi-Fi driver with data and status callbacks. */
     param.pfAppWifiCb = wifi_cb;
-	ret = m2m_wifi_init(&param);
+    ret = m2m_wifi_init(&param);
 
-	if (M2M_SUCCESS != ret) {
-		printf("__chip_init: m2m_wifi_init call error!(%d)\r\n", ret);
+    if (M2M_SUCCESS != ret) {
+        printf("__chip_init: m2m_wifi_init call error!(%d)\r\n", ret);
         return ERR_VALUE_EXC;
-	}
+    }
 
     cb_data_init();
     sock_data_init();
